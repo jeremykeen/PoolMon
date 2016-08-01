@@ -1,0 +1,5 @@
+Work in Progress....
+
+firmwares are for Particle Photon to read the Atlas Scientific pH Sensor (http://www.atlas-scientific.com/ph.html)
+
+python scripts are for reading from the Raspberry Pi and sending to Adafruit
