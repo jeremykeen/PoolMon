@@ -39,7 +39,7 @@ power it gets more picky about the value.
 // SYSTEM_MODE(SEMI_AUTOMATIC);  // skip connecting to the cloud for (Electron) testing
 
 // device name
-#define DEVICE_NAME "PHOTON-POOLv0.3.3"
+#define DEVICE_NAME "PHOTON-POOLv0.4.1"
 
 //frequency to send data
 #define SEND_INTERVAL 30
@@ -72,7 +72,9 @@ boolean input_string_complete = false;                //have we received all the
 boolean sensor_string_complete = false;               //have we received all the data from the Atlas Scientific product
 float pH;                                             //used to hold a floating point number that is the pH// last time since we sent sensor readings
 int lastSend = 0;                                   //last time sensor reading sent
-int ver = 2;
+float celsius;
+double fahrenheit;
+double soc;
 
 #if ADAFRUIT_ENABLED
 Adafruit_IO_Client aio = Adafruit_IO_Client(tcpClient, ADAFRUIT_API_KEY);
@@ -94,10 +96,9 @@ void setup() {
   inputstring.reserve(10);                            //set aside some bytes for receiving data from the PC
   phstring.reserve(30);                           //set aside some bytes for receiving data from Atlas Scientific product
 
-  Particle.variable("particlepHVar", phstring);
-  Particle.variable("particleTemperatureVar", fahrenheit);
-  Particle.variable("particleBatteryLevelVar", soc);
-  Particle.variable("version", ver, INT);
+  Particle.variable("pHVar", phstring);
+  Particle.variable("TempVar", fahrenheit);
+  Particle.variable("BattVar", soc);
 
   Serial1.print('C,1');
   Serial1.print('\r');
@@ -144,7 +145,7 @@ void loop(void) {
   byte type_s;
   byte data[12];
   byte addr[8];
-  float celsius, fahrenheit, soc;
+
   int now = Time.now();
 
   if (input_string_complete == true) {                //if a string from the PC has been received in its entirety
