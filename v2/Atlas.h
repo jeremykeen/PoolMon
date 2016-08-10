@@ -1,7 +1,8 @@
 #ifndef ATLAS_H
 #define ATLAS_H
 
-#include "Arduino.h"
+//#include "Arduino.h"
+#include "application.h"
 #include <AltSoftSerial.h>
 
 #define muxPin1 2
