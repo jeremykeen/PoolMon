@@ -102,7 +102,7 @@ void setup() {
 
   Serial1.print('C,1');
   Serial1.print('\r');
-  Serial1.print('L,0');
+  Serial1.print('L,1');
   Serial1.print('\r');
 
 
