@@ -24,46 +24,46 @@ OneWire ds = OneWire(D4);  // 1-wire signal on pin D4
 #include "Adafruit_IO_Arduino.h"
 #endif
 
-#include "SparkFunMAX17043/SparkFunMAX17043.h"
+#include "SparkFunMAX17043.h"
 // MAX17043 battery manager IC settings
 float batteryVoltage;
-float batterySOC;
+double batterySOC;
 bool batteryAlert;
 
-#include "ThingSpeak/ThingSpeak.h"
+#include "ThingSpeak.h"
 //################### update these vars ###################
 unsigned long myChannelNumber = 144215;  //e.g. 101992
 const char * myWriteAPIKey = "PVANB79KBVKVMY0K"; // write key here, e.g. ZQV7CRQ8PLKO5QXF
 //################### update these vars ###################
 
+TCPClient client;
+
 #if ADAFRUIT_ENABLED
-Adafruit_IO_Client aio = Adafruit_IO_Client(tcpClient, ADAFRUIT_API_KEY);
+Adafruit_IO_Client aio = Adafruit_IO_Client(client, ADAFRUIT_API_KEY);
 Adafruit_IO_Feed aioFeedPoolTemp = aio.getFeed(ADAFRUIT_FEED_POOLTEMP);
 Adafruit_IO_Feed aioFeedPH = aio.getFeed(ADAFRUIT_FEED_PH);
 Adafruit_IO_Feed aioFeedBattery = aio.getFeed(ADAFRUIT_FEED_BATTERY);
 #endif
 
-TCPClient client;
-
 String inputstring = "";                              //a string to hold incoming data from the PC
 String phstring = "";                             //a string to hold the data from the Atlas Scientific product
 boolean input_string_complete = false;                //have we received all the data from the PC
 boolean sensor_string_complete = false;               //have we received all the data from the Atlas Scientific product
-float pH;                                             //used to hold a floating point number that is the pH// last time since we sent sensor readings
+double pH = 1;                                             //used to hold a floating point number that is the pH// last time since we sent sensor readings
 int lastSend = 0;                                   //last time sensor reading sent
 float celsius;
 double fahrenheit;
 double soc;
-String ledconfig = "L,0";
+String ledconfig = "L,1";
 
 unsigned long lastMeasureTime = 0;
-unsigned long measureInterval = 60000; // can send data to thingspeak every 15s, but give the matlab analysis a chance to add data too
+unsigned long measureInterval = 5000; // can send data to thingspeak every 15s, but give the matlab analysis a chance to add data too
 
 
 // connection settings
 float batterySOCmin = 95.0; // minimum battery state of charge needed for short wakeup time
-unsigned long wakeUpTimeoutShort = 60; // wake up every 5 mins when battery SOC > batterySOCmin
-unsigned long wakeUpTimeoutLong = 300; // wake up every 15 mins during long sleep, when battery is lower
+unsigned long wakeUpTimeoutShort = 10; // wake up every 5 mins when battery SOC > batterySOCmin
+unsigned long wakeUpTimeoutLong = 30; // wake up every 15 mins during long sleep, when battery is lower
 unsigned long connectedTime; // millis() at the time we actually get connected, used to see how long it takes to connect
 unsigned long connectionTime; // difference between connectedTime and startTime
 
@@ -91,9 +91,9 @@ void setup() {
 
     Particle.variable("pHVar", phstring);
     Particle.variable("TempVar", fahrenheit);
-    Particle.variable("BattVar", soc);
+    Particle.variable("BattVar", batterySOC);
 
-    //set the LED to 'off' on the pH sensor chip
+    //set the LED on the pH sensor chip
     Serial1.print(ledconfig);
     Serial1.print('\r');
 
@@ -117,8 +117,9 @@ void setup() {
     ThingSpeak.begin(client);
 
     Particle.subscribe(eventPrefix, eventHandler);
-    Particle.publish(eventPrefix + "/pHSensor/online", "true"); // subscribe to this with the API like: curl https://api.particle.io/v1/devices/events/temp?access_token=1234
+    Particle.publish(eventPrefix + "/pHSensor/startup", "true"); // subscribe to this with the API like: curl https://api.particle.io/v1/devices/events/temp?access_token=1234
     bootupStartTime = millis();
+
     doTelemetry(); // always take the measurements at least once
 }
 
@@ -146,9 +147,15 @@ void loop() {
             }
     } else {
             if (batterySOC < batterySOCmin) {
-                System.sleep(SLEEP_MODE_DEEP, wakeUpTimeoutLong);
+                Serial.println("sleeping for long");
+                //Particle.publish(eventPrefix + "/pHSensor/sleep", "long");
+                //System.sleep(SLEEP_MODE_DEEP, wakeUpTimeoutLong);
+                delay(1000);
             } else {
-                System.sleep(SLEEP_MODE_DEEP, wakeUpTimeoutShort);
+                Serial.println("sleeping for short");
+                //Particle.publish(eventPrefix + "/pHSensor/sleep", "short");
+                //System.sleep(SLEEP_MODE_DEEP, wakeUpTimeoutShort);
+                delay(1000);
             }
     }
 }
@@ -175,7 +182,8 @@ void eventHandler(String event, String data)
 
 void doTelemetry() {
     // publish we're still here
-    Particle.publish(eventPrefix + "/pHSensor/online", "true");
+    Serial.println("started telemetry");
+    //Particle.publish(eventPrefix + "/pHSensor/telemetry", "true");
 
     byte i;
     byte present = 0;
@@ -342,29 +350,7 @@ void doTelemetry() {
     Serial.print(fahrenheit);
     Serial.println(" Fahrenheit");
 
-    soc = lipo.getSOC(); //get state-of-charge of battery
-
-    // do something with the temp and pH data
-    #if ADAFRUIT_ENABLED
-            aioFeedPoolTemp.send(fahrenheit);
-            aioFeedPH.send(pH);
-            aioFeedBattery.send(String(soc));
-    #endif
-
-      /*sprintf(payload,
-          "{\"device\":\"%s\",\"TempF\":%.2f,\"pH\":%.2f}",
-          DEVICE_NAME,
-          fahrenheit,
-          pH);
-          */
-
-    #if PARTICLE_EVENT
-            Particle.publish(eventPrefix + "/pHSensor/temp", String(fahrenheit));
-            Particle.publish(eventPrefix + "/pHSensor/pH", String(pH));
-            //Spark.publish(PARTICLE_EVENT_NAME, payload, 60, PRIVATE);
-            //Spark.publish("pool-temp", String(fahrenheit));
-    #endif
-    ThingSpeak.setField(1, fahrenheit);
+    ThingSpeak.setField(1, String(fahrenheit));
     ThingSpeak.setField(2, phstring);
 
     // read battery states
@@ -372,10 +358,24 @@ void doTelemetry() {
     ThingSpeak.setField(3, batteryVoltage);
     // lipo.getSOC() returns the estimated state of charge (e.g. 79%)
     batterySOC = lipo.getSOC();
-    ThingSpeak.setField(4, batterySOC);
+    ThingSpeak.setField(4, String(batterySOC));
     // lipo.getAlert() returns a 0 or 1 (0=alert not triggered)
     //batteryAlert = lipo.getAlert();
 
     ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+
+    #if ADAFRUIT_ENABLED
+            aioFeedPoolTemp.send(fahrenheit);
+            aioFeedPH.send(pH);
+            aioFeedBattery.send(String(batterySOC));
+    #endif
+
+    #if PARTICLE_EVENT
+            Particle.publish(eventPrefix + "/pHSensor/temp", String(fahrenheit));
+            Particle.publish(eventPrefix + "/pHSensor/pH", phstring);
+            //Spark.publish(PARTICLE_EVENT_NAME, payload, 60, PRIVATE);
+            //Spark.publish("pool-temp", String(fahrenheit));
+    #endif
+
     lastMeasureTime = millis();
 }
