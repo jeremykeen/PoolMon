@@ -1,5 +1,3 @@
-//from: https://github.com/ryneches/Atlas
-
 #include <Atlas.h>
 #include <AltSoftSerial.h>
 
