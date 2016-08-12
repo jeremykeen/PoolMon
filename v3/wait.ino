@@ -58,7 +58,7 @@ String ledconfig = "L,0";
 String phReadCont = "C,0";
 
 unsigned long lastMeasureTime = 0;
-unsigned long measureInterval = 15000; // can send data to thingspeak every 15s, but give the matlab analysis a chance to add data too
+unsigned long measureInterval = 30000; // can send data to thingspeak every 15s, but give the matlab analysis a chance to add data too
 
 
 // connection settings
