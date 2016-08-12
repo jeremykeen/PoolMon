@@ -76,6 +76,8 @@ unsigned long bootupStartTime;
 //Timer setup
 Timer sleepy(communicationTimeout, go_to_sleep);
 Timer measurement(measureInterval, doTelemetry);
+Timer countup(1000, counter);
+int count = 0;
 
 // for HTTP POST and Particle.publish payloads
 char payload[1024];
@@ -96,6 +98,7 @@ void setup() {
     Particle.variable("pHVar", phstring);
     Particle.variable("TempVar", fahrenheit);
     Particle.variable("BattVar", batterySOC);
+    Particle.variable("Counter", count);
 
     //set the LED on the pH sensor chip
     Serial1.print(ledconfig);
@@ -123,6 +126,9 @@ void setup() {
     Particle.subscribe(eventPrefix, eventHandler);
     Particle.publish(eventPrefix + "/pHSensor/startup", "true"); // subscribe to this with the API like: curl https://api.particle.io/v1/devices/events/temp?access_token=1234
     sleepy.start();
+    measurement.start();
+    countup.start();
+    
     doTelemetry(); // always take the measurements at least once
 }
 
@@ -139,7 +145,7 @@ void serialEvent1() {                                 //if the hardware serial p
 
 void go_to_sleep(){
   Serial.println("sleeping for long");
-  Particle.publish(eventPrefix + "/pHSensor/sleep", "long");
+  Particle.publish(eventPrefix + "/pHSensor/sleep", communicationTimeout);
   //System.sleep(SLEEP_MODE_DEEP, wakeUpTimeoutLong);
   delay(5000);
   sleepy.reset();
@@ -152,6 +158,9 @@ void loop() {
     }
 }
 
+void counter(){
+  Serial.println(count++);
+}
 
 void eventHandler(String event, String data)
 {
