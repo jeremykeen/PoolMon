@@ -45,6 +45,7 @@ Adafruit_IO_Feed aioFeedPH = aio.getFeed(ADAFRUIT_FEED_PH);
 Adafruit_IO_Feed aioFeedBattery = aio.getFeed(ADAFRUIT_FEED_BATTERY);
 #endif
 
+
 String inputstring = "";                              //a string to hold incoming data from the PC
 String phstring = "";                             //a string to hold the data from the Atlas Scientific product
 boolean input_string_complete = false;                //have we received all the data from the PC
@@ -65,14 +66,16 @@ unsigned long measureInterval = 30000; // can send data to thingspeak every 15s,
 float batterySOCmin = 95.0; // minimum battery state of charge needed for short wakeup time
 unsigned long wakeUpTimeoutShort = 10; // wake up every 5 mins when battery SOC > batterySOCmin
 unsigned long wakeUpTimeoutLong = 30; // wake up every 15 mins during long sleep, when battery is lower
-unsigned long connectedTime; // millis() at the time we actually get connected, used to see how long it takes to connect
-unsigned long connectionTime; // difference between connectedTime and startTime
 
 // for updating software
 bool waitForUpdate = false; // for updating software
 unsigned long updateTimeout = 300000; // 5 min timeout for waiting for software update
 unsigned long communicationTimeout = 300000; // wait 5 mins before sleeping
 unsigned long bootupStartTime;
+
+//Timer setup
+Timer sleepy(communicationTimeout, go_to_sleep);
+Timer measurement(measureInterval, doTelemetry);
 
 // for HTTP POST and Particle.publish payloads
 char payload[1024];
@@ -110,8 +113,6 @@ void setup() {
     // We can set an interrupt to alert when the battery SoC gets too low.
     // We can alert at anywhere between 1% - 32%:
     lipo.setThreshold(20); // Set alert threshold to 20%.
-    // use this to measure how long it takes to connect the Photon to the internet if you're in spotty wifi coverage
-    pinMode(A0, INPUT); // ultrasonic distance sensor
 
     #if ADAFRUIT_ENABLED
         aio.begin();
@@ -121,8 +122,7 @@ void setup() {
 
     Particle.subscribe(eventPrefix, eventHandler);
     Particle.publish(eventPrefix + "/pHSensor/startup", "true"); // subscribe to this with the API like: curl https://api.particle.io/v1/devices/events/temp?access_token=1234
-    bootupStartTime = millis();
-
+    sleepy.start();
     doTelemetry(); // always take the measurements at least once
 }
 
@@ -137,55 +137,36 @@ void serialEvent1() {                                 //if the hardware serial p
   sensor_string_complete = true;                      //set the flag used to tell if we have received a completed string from the PC
 }
 
+void go_to_sleep(){
+  Serial.println("sleeping for long");
+  Particle.publish(eventPrefix + "/pHSensor/sleep", "long");
+  //System.sleep(SLEEP_MODE_DEEP, wakeUpTimeoutLong);
+  delay(5000);
+  sleepy.reset();
+}
+
 void loop() {
-    /*Serial.println(millis());
-    Serial.println("bootstartup: " + bootupStartTime);
-    Serial.println("commtimeout: " + communicationTimeout);
-    Serial.println("updatetimeout: " + updateTimeout);*/
-    if (waitForUpdate || millis() - bootupStartTime > communicationTimeout || millis() - lastMeasureTime > measureInterval) {
-        // The Photon will stay on unless the battery is less than 75% full, or if the pump is running.
-        // If the battery is low, it will stay on if we've told it we want to update the firmware, until that times out (updateTimeout)
-        // It will stay on no matter what for a time we set, stored in the variable communicationTimeout
-        if (millis() - lastMeasureTime > measureInterval) {
-            doTelemetry();
-        }
-        if ((millis() - bootupStartTime) > updateTimeout) {
-                Serial.println("waitforupdate set to false false");
-                waitForUpdate = false;
-        }
-    } else {
-            if (batterySOC < batterySOCmin) {
-                Serial.println("sleeping for long");
-                Particle.publish(eventPrefix + "/pHSensor/sleep", "long");
-                //System.sleep(SLEEP_MODE_DEEP, wakeUpTimeoutLong);
-                delay(5000);
-            } else {
-                Serial.println("sleeping for short");
-                Particle.publish(eventPrefix + "/pHSensor/sleep", "short");
-                //System.sleep(SLEEP_MODE_DEEP, wakeUpTimeoutShort);
-                delay(5000);
-            }
+    if ((millis() - bootupStartTime) > updateTimeout) {
+            Serial.println("waitforupdate set to false false");
+            waitForUpdate = false;
     }
 }
+
 
 void eventHandler(String event, String data)
 {
   // to publish update: curl https://api.particle.io/v1/devices/events -d "name=update" -d "data=true" -d "private=true" -d "ttl=60" -d access_token=1234
   if (event == eventPrefix + "/pHSensor/update") {
-      if (data == "true"){
-        waitForUpdate = true;
-        } else{
-            waitForUpdate = false;
-        }
-      if (waitForUpdate) {
-        Serial.println("wating for update");
-        Particle.publish(eventPrefix + "/pHSensor/updateConfirm", "waiting for update");
-      } else {
-        Serial.println("not wating for update");
-        Particle.publish(eventPrefix + "/pHSensor/updateConfirm", "not waiting for update");
-      }
-  } else if (event == eventPrefix + "/waterTankPump/pumpOn") {
-      (data == "true") ? pumpOn = true : pumpOn = false;
+    if (data == "true"){
+      waitForUpdate = true;
+      sleepy.changePeriod(600000);
+      Serial.println("wating for update");
+      Particle.publish(eventPrefix + "/pHSensor/updateConfirm", "waiting for update");
+    }
+  }
+  if (event == eventPrefix + "/pHSensor/cfg") {
+    Serial.println("sending setting to pH sensor:" + data);
+    Serial1.print(data);
   }
   Serial.print(event);
   Serial.print(", data: ");
