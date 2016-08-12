@@ -54,10 +54,11 @@ int lastSend = 0;                                   //last time sensor reading s
 float celsius;
 double fahrenheit;
 double soc;
-String ledconfig = "L,1";
+String ledconfig = "L,0";
+String phReadCont = "C,0";
 
 unsigned long lastMeasureTime = 0;
-unsigned long measureInterval = 5000; // can send data to thingspeak every 15s, but give the matlab analysis a chance to add data too
+unsigned long measureInterval = 15000; // can send data to thingspeak every 15s, but give the matlab analysis a chance to add data too
 
 
 // connection settings
@@ -69,7 +70,7 @@ unsigned long connectionTime; // difference between connectedTime and startTime
 
 // for updating software
 bool waitForUpdate = false; // for updating software
-unsigned long updateTimeout = 600000; // 10 min timeout for waiting for software update
+unsigned long updateTimeout = 300000; // 5 min timeout for waiting for software update
 unsigned long communicationTimeout = 300000; // wait 5 mins before sleeping
 unsigned long bootupStartTime;
 
@@ -95,6 +96,8 @@ void setup() {
 
     //set the LED on the pH sensor chip
     Serial1.print(ledconfig);
+    Serial1.print('\r');
+    Serial1.print(phReadCont);
     Serial1.print('\r');
 
     // Set up the MAX17043 LiPo fuel gauge:
@@ -135,27 +138,32 @@ void serialEvent1() {                                 //if the hardware serial p
 }
 
 void loop() {
-    if (waitForUpdate || millis() - bootupStartTime > communicationTimeout || batterySOC > 75.0 || pumpOn) {
+    /*Serial.println(millis());
+    Serial.println("bootstartup: " + bootupStartTime);
+    Serial.println("commtimeout: " + communicationTimeout);
+    Serial.println("updatetimeout: " + updateTimeout);*/
+    if (waitForUpdate || millis() - bootupStartTime > communicationTimeout || millis() - lastMeasureTime > measureInterval) {
         // The Photon will stay on unless the battery is less than 75% full, or if the pump is running.
         // If the battery is low, it will stay on if we've told it we want to update the firmware, until that times out (updateTimeout)
         // It will stay on no matter what for a time we set, stored in the variable communicationTimeout
         if (millis() - lastMeasureTime > measureInterval) {
             doTelemetry();
         }
-            if ((millis() - bootupStartTime) > updateTimeout) {
+        if ((millis() - bootupStartTime) > updateTimeout) {
+                Serial.println("waitforupdate set to false false");
                 waitForUpdate = false;
-            }
+        }
     } else {
             if (batterySOC < batterySOCmin) {
                 Serial.println("sleeping for long");
-                //Particle.publish(eventPrefix + "/pHSensor/sleep", "long");
+                Particle.publish(eventPrefix + "/pHSensor/sleep", "long");
                 //System.sleep(SLEEP_MODE_DEEP, wakeUpTimeoutLong);
-                delay(1000);
+                delay(5000);
             } else {
                 Serial.println("sleeping for short");
-                //Particle.publish(eventPrefix + "/pHSensor/sleep", "short");
+                Particle.publish(eventPrefix + "/pHSensor/sleep", "short");
                 //System.sleep(SLEEP_MODE_DEEP, wakeUpTimeoutShort);
-                delay(1000);
+                delay(5000);
             }
     }
 }
@@ -164,7 +172,11 @@ void eventHandler(String event, String data)
 {
   // to publish update: curl https://api.particle.io/v1/devices/events -d "name=update" -d "data=true" -d "private=true" -d "ttl=60" -d access_token=1234
   if (event == eventPrefix + "/pHSensor/update") {
-      (data == "true") ? waitForUpdate = true : waitForUpdate = false;
+      if (data == "true"){
+        waitForUpdate = true;
+        } else{
+            waitForUpdate = false;
+        }
       if (waitForUpdate) {
         Serial.println("wating for update");
         Particle.publish(eventPrefix + "/pHSensor/updateConfirm", "waiting for update");
@@ -183,7 +195,12 @@ void eventHandler(String event, String data)
 void doTelemetry() {
     // publish we're still here
     Serial.println("started telemetry");
-    //Particle.publish(eventPrefix + "/pHSensor/telemetry", "true");
+    Particle.publish(eventPrefix + "/pHSensor/online", "true");
+
+    Serial.println("triggering reading of pH");
+    Serial1.print('R');
+    Serial1.print('\r');
+    delay(2000); //wait for reading of pH sensor
 
     byte i;
     byte present = 0;
@@ -248,7 +265,8 @@ void doTelemetry() {
 
     if (sensor_string_complete == true) {               //if a string from the Atlas Scientific product has been received in its entirety
       Serial.println(phstring);                         //send that string to the PC's serial monitor
-      Spark.publish("pool-ph", phstring);
+      Particle.publish(eventPrefix + "/pHSensor/pH", phstring);
+      ThingSpeak.setField(2, phstring);
       if (isdigit(phstring[0])) {                   //if the first character in the string is a digit
         pH = phstring.toFloat();                    //convert the string to a floating point number so it can be evaluated by the Arduino
         if (pH >= 7.0) {                                //if the pH is greater than or equal to 7.0
@@ -351,7 +369,6 @@ void doTelemetry() {
     Serial.println(" Fahrenheit");
 
     ThingSpeak.setField(1, String(fahrenheit));
-    ThingSpeak.setField(2, phstring);
 
     // read battery states
     batteryVoltage = lipo.getVoltage();
@@ -372,7 +389,7 @@ void doTelemetry() {
 
     #if PARTICLE_EVENT
             Particle.publish(eventPrefix + "/pHSensor/temp", String(fahrenheit));
-            Particle.publish(eventPrefix + "/pHSensor/pH", phstring);
+            Particle.publish(eventPrefix + "/pHSensor/batterySOC", String(batterySOC));
             //Spark.publish(PARTICLE_EVENT_NAME, payload, 60, PRIVATE);
             //Spark.publish("pool-temp", String(fahrenheit));
     #endif
