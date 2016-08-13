@@ -59,13 +59,13 @@ String ledconfig = "L,0";
 String phReadCont = "C,0";
 
 unsigned long lastMeasureTime = 0;
-unsigned long measureInterval = 30000; // can send data to thingspeak every 15s, but give the matlab analysis a chance to add data too
+unsigned long measureInterval = 15000; // can send data to thingspeak every 15s, but give the matlab analysis a chance to add data too
 
 
 // connection settings
 float batterySOCmin = 95.0; // minimum battery state of charge needed for short wakeup time
 unsigned long wakeUpTimeoutShort = 10; // wake up every 5 mins when battery SOC > batterySOCmin
-unsigned long wakeUpTimeoutLong = 30; // wake up every 15 mins during long sleep, when battery is lower
+unsigned long wakeUpTimeoutLong = 60; // wake up every 15 mins during long sleep, when battery is lower
 
 // for updating software
 bool waitForUpdate = false; // for updating software
@@ -95,7 +95,7 @@ void setup() {
     inputstring.reserve(10);                            //set aside some bytes for receiving data from the PC
     phstring.reserve(30);                           //set aside some bytes for receiving data from Atlas Scientific product
 
-    Particle.variable("pHVar", phstring);
+    Particle.variable("pHVar", String(pH));
     Particle.variable("TempVar", fahrenheit);
     Particle.variable("BattVar", batterySOC);
     Particle.variable("Counter", count);
@@ -128,7 +128,7 @@ void setup() {
     sleepy.start();
     measurement.start();
     countup.start();
-    
+
     doTelemetry(); // always take the measurements at least once
 }
 
@@ -146,12 +146,29 @@ void serialEvent1() {                                 //if the hardware serial p
 void go_to_sleep(){
   Serial.println("sleeping for long");
   Particle.publish(eventPrefix + "/pHSensor/sleep", communicationTimeout);
-  //System.sleep(SLEEP_MODE_DEEP, wakeUpTimeoutLong);
-  delay(5000);
   sleepy.reset();
+  count = 0;
+  //System.sleep(SLEEP_MODE_DEEP, wakeUpTimeoutLong);
 }
 
 void loop() {
+  if (sensor_string_complete == true) {               //if a string from the Atlas Scientific product has been received in its entirety
+    Serial.println(phstring);                         //send that string to the PC's serial monitor
+    if (isdigit(phstring[0])) {                   //if the first character in the string is a digit
+      ThingSpeak.setField(2, phstring);
+      Particle.publish(eventPrefix + "/pHSensor/pH", phstring);
+      pH = phstring.toFloat();                    //convert the string to a floating point number so it can be evaluated by the Arduino
+      if (pH >= 7.0) {                                //if the pH is greater than or equal to 7.0
+        Serial.println("high");                       //print "high" this is demonstrating that the Arduino is evaluating the pH as a number and not as a string
+      }
+      if (pH <= 6.99) {                               //if the pH is less than or equal to 6.99
+        Serial.println("low");                        //print "low" this is demonstrating that the Arduino is evaluating the pH as a number and not as a string
+      }
+    }
+  }
+  phstring = "";                                  //clear the string:
+  sensor_string_complete = false;
+
     if ((millis() - bootupStartTime) > updateTimeout) {
             Serial.println("waitforupdate set to false false");
             waitForUpdate = false;
@@ -190,7 +207,7 @@ void doTelemetry() {
     Serial.println("triggering reading of pH");
     Serial1.print('R');
     Serial1.print('\r');
-    delay(2000); //wait for reading of pH sensor
+    //delay(2000); //wait for reading of pH sensor
 
     byte i;
     byte present = 0;
@@ -251,24 +268,6 @@ void doTelemetry() {
         return;
     }
 
-    // got a reading from pH sensor, let's do something with it
-
-    if (sensor_string_complete == true) {               //if a string from the Atlas Scientific product has been received in its entirety
-      Serial.println(phstring);                         //send that string to the PC's serial monitor
-      Particle.publish(eventPrefix + "/pHSensor/pH", phstring);
-      ThingSpeak.setField(2, phstring);
-      if (isdigit(phstring[0])) {                   //if the first character in the string is a digit
-        pH = phstring.toFloat();                    //convert the string to a floating point number so it can be evaluated by the Arduino
-        if (pH >= 7.0) {                                //if the pH is greater than or equal to 7.0
-          Serial.println("high");                       //print "high" this is demonstrating that the Arduino is evaluating the pH as a number and not as a string
-        }
-        if (pH <= 6.99) {                               //if the pH is less than or equal to 6.99
-          Serial.println("low");                        //print "low" this is demonstrating that the Arduino is evaluating the pH as a number and not as a string
-        }
-      }
-    }
-    phstring = "";                                  //clear the string:
-    sensor_string_complete = false;
 
     // this device has temp so let's read it
 
