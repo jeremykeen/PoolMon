@@ -70,7 +70,7 @@ unsigned long wakeUpTimeoutLong = 60; // wake up every 15 mins during long sleep
 // for updating software
 bool waitForUpdate = false; // for updating software
 unsigned long updateTimeout = 300000; // 5 min timeout for waiting for software update
-unsigned long communicationTimeout = 300000; // wait 5 mins before sleeping
+unsigned long communicationTimeout = 90000; // wait 5 mins before sleeping
 unsigned long bootupStartTime;
 
 //Timer setup
@@ -148,10 +148,11 @@ void go_to_sleep(){
   Particle.publish(eventPrefix + "/pHSensor/sleep", communicationTimeout);
   sleepy.reset();
   count = 0;
-  //System.sleep(SLEEP_MODE_DEEP, wakeUpTimeoutLong);
+  System.sleep(900);
 }
 
 void loop() {
+
   if (sensor_string_complete == true) {               //if a string from the Atlas Scientific product has been received in its entirety
     Serial.println(phstring);                         //send that string to the PC's serial monitor
     if (isdigit(phstring[0])) {                   //if the first character in the string is a digit
@@ -168,11 +169,6 @@ void loop() {
   }
   phstring = "";                                  //clear the string:
   sensor_string_complete = false;
-
-    if ((millis() - bootupStartTime) > updateTimeout) {
-            Serial.println("waitforupdate set to false false");
-            waitForUpdate = false;
-    }
 }
 
 void counter(){
@@ -199,6 +195,159 @@ void eventHandler(String event, String data)
   Serial.println(data);
 }
 
+void getTemp(){
+
+  Serial.println("getting temperature reading");
+
+  byte i;
+  byte present = 0;
+  byte type_s;
+  byte data[12];
+  byte addr[8];
+
+  if ( !ds.search(addr)) {
+    Serial.println("No more addresses.");
+    Serial.println();
+    ds.reset_search();
+    delay(250);
+    return;
+  }
+
+  // The order is changed a bit in this example
+  // first the returned address is printed
+
+  Serial.print("ROM =");
+  for( i = 0; i < 8; i++) {
+    Serial.write(' ');
+    Serial.print(addr[i], HEX);
+  }
+
+  // second the CRC is checked, on fail,
+  // print error and just return to try again
+
+  if (OneWire::crc8(addr, 7) != addr[7]) {
+      Serial.println("CRC is not valid!");
+      return;
+  }
+  Serial.println();
+
+  // we have a good address at this point
+  // what kind of chip do we have?
+  // we will set a type_s value for known types or just return
+
+  // the first ROM byte indicates which chip
+  switch (addr[0]) {
+    case 0x10:
+      Serial.println("  Chip = DS1820/DS18S20");
+      type_s = 1;
+      break;
+    case 0x28:
+      Serial.println("  Chip = DS18B20");
+      type_s = 0;
+      break;
+    case 0x22:
+      Serial.println("  Chip = DS1822");
+      type_s = 0;
+      break;
+    case 0x26:
+      Serial.println("  Chip = DS2438");
+      type_s = 2;
+      break;
+    default:
+      Serial.println("Unknown device type.");
+      return;
+  }
+
+
+  // this device has temp so let's read it
+
+  ds.reset();               // first clear the 1-wire bus
+  ds.select(addr);          // now select the device we just found
+  // ds.write(0x44, 1);     // tell it to start a conversion, with parasite power on at the end
+  ds.write(0x44, 0);        // or start conversion in powered mode (bus finishes low)
+
+  // just wait a second while the conversion takes place
+  // different chips have different conversion times, check the specs, 1 sec is worse case + 250ms
+  // you could also communicate with other devices if you like but you would need
+  // to already know their address to select them.
+
+  delay(1000);     // maybe 750ms is enough, maybe not, wait 1 sec for conversion
+
+  // we might do a ds.depower() (parasite) here, but the reset will take care of it.
+
+  // first make sure current values are in the scratch pad
+
+  present = ds.reset();
+  ds.select(addr);
+  ds.write(0xB8,0);         // Recall Memory 0
+  ds.write(0x00,0);         // Recall Memory 0
+
+  // now read the scratch pad
+
+  present = ds.reset();
+  ds.select(addr);
+  ds.write(0xBE,0);         // Read Scratchpad
+  if (type_s == 2) {
+    ds.write(0x00,0);       // The DS2438 needs a page# to read
+  }
+
+  // transfer and print the values
+
+  Serial.print("  Data = ");
+  Serial.print(present, HEX);
+  Serial.print(" ");
+  for ( i = 0; i < 9; i++) {           // we need 9 bytes
+    data[i] = ds.read();
+    Serial.print(data[i], HEX);
+    Serial.print(" ");
+  }
+  Serial.print(" CRC=");
+  Serial.print(OneWire::crc8(data, 8), HEX);
+  Serial.println();
+
+  // Convert the data to actual temperature
+  // because the result is a 16 bit signed integer, it should
+  // be stored to an "int16_t" type, which is always 16 bits
+  // even when compiled on a 32 bit processor.
+  int16_t raw = (data[1] << 8) | data[0];
+  if (type_s == 2) raw = (data[2] << 8) | data[1];
+  byte cfg = (data[4] & 0x60);
+
+  switch (type_s) {
+    case 1:
+      raw = raw << 3; // 9 bit resolution default
+      if (data[7] == 0x10) {
+        // "count remain" gives full 12 bit resolution
+        raw = (raw & 0xFFF0) + 12 - data[6];
+      }
+      celsius = (float)raw * 0.0625;
+      break;
+    case 0:
+      // at lower res, the low bits are undefined, so let's zero them
+      if (cfg == 0x00) raw = raw & ~7;  // 9 bit resolution, 93.75 ms
+      if (cfg == 0x20) raw = raw & ~3; // 10 bit res, 187.5 ms
+      if (cfg == 0x40) raw = raw & ~1; // 11 bit res, 375 ms
+      // default is 12 bit resolution, 750 ms conversion time
+      celsius = (float)raw * 0.0625;
+      break;
+
+    case 2:
+      data[1] = (data[1] >> 3) & 0x1f;
+      if (data[2] > 127) {
+        celsius = (float)data[2] - ((float)data[1] * .03125);
+      }else{
+        celsius = (float)data[2] + ((float)data[1] * .03125);
+      }
+  }
+
+  fahrenheit = celsius * 1.8 + 32.0;
+  Serial.print("  Temperature = ");
+  Serial.print(celsius);
+  Serial.print(" Celsius, ");
+  Serial.print(fahrenheit);
+  Serial.println(" Fahrenheit");
+}
+
 void doTelemetry() {
     // publish we're still here
     Serial.println("started telemetry");
@@ -208,154 +357,9 @@ void doTelemetry() {
     Serial1.print('R');
     Serial1.print('\r');
     //delay(2000); //wait for reading of pH sensor
-
-    byte i;
-    byte present = 0;
-    byte type_s;
-    byte data[12];
-    byte addr[8];
-
-    if ( !ds.search(addr)) {
-      Serial.println("No more addresses.");
-      Serial.println();
-      ds.reset_search();
-      delay(250);
-      return;
+    while (fahrenheit < 70 || fahrenheit > 95) {
+        getTemp();
     }
-
-    // The order is changed a bit in this example
-    // first the returned address is printed
-
-    Serial.print("ROM =");
-    for( i = 0; i < 8; i++) {
-      Serial.write(' ');
-      Serial.print(addr[i], HEX);
-    }
-
-    // second the CRC is checked, on fail,
-    // print error and just return to try again
-
-    if (OneWire::crc8(addr, 7) != addr[7]) {
-        Serial.println("CRC is not valid!");
-        return;
-    }
-    Serial.println();
-
-    // we have a good address at this point
-    // what kind of chip do we have?
-    // we will set a type_s value for known types or just return
-
-    // the first ROM byte indicates which chip
-    switch (addr[0]) {
-      case 0x10:
-        Serial.println("  Chip = DS1820/DS18S20");
-        type_s = 1;
-        break;
-      case 0x28:
-        Serial.println("  Chip = DS18B20");
-        type_s = 0;
-        break;
-      case 0x22:
-        Serial.println("  Chip = DS1822");
-        type_s = 0;
-        break;
-      case 0x26:
-        Serial.println("  Chip = DS2438");
-        type_s = 2;
-        break;
-      default:
-        Serial.println("Unknown device type.");
-        return;
-    }
-
-
-    // this device has temp so let's read it
-
-    ds.reset();               // first clear the 1-wire bus
-    ds.select(addr);          // now select the device we just found
-    // ds.write(0x44, 1);     // tell it to start a conversion, with parasite power on at the end
-    ds.write(0x44, 0);        // or start conversion in powered mode (bus finishes low)
-
-    // just wait a second while the conversion takes place
-    // different chips have different conversion times, check the specs, 1 sec is worse case + 250ms
-    // you could also communicate with other devices if you like but you would need
-    // to already know their address to select them.
-
-    delay(1000);     // maybe 750ms is enough, maybe not, wait 1 sec for conversion
-
-    // we might do a ds.depower() (parasite) here, but the reset will take care of it.
-
-    // first make sure current values are in the scratch pad
-
-    present = ds.reset();
-    ds.select(addr);
-    ds.write(0xB8,0);         // Recall Memory 0
-    ds.write(0x00,0);         // Recall Memory 0
-
-    // now read the scratch pad
-
-    present = ds.reset();
-    ds.select(addr);
-    ds.write(0xBE,0);         // Read Scratchpad
-    if (type_s == 2) {
-      ds.write(0x00,0);       // The DS2438 needs a page# to read
-    }
-
-    // transfer and print the values
-
-    Serial.print("  Data = ");
-    Serial.print(present, HEX);
-    Serial.print(" ");
-    for ( i = 0; i < 9; i++) {           // we need 9 bytes
-      data[i] = ds.read();
-      Serial.print(data[i], HEX);
-      Serial.print(" ");
-    }
-    Serial.print(" CRC=");
-    Serial.print(OneWire::crc8(data, 8), HEX);
-    Serial.println();
-
-    // Convert the data to actual temperature
-    // because the result is a 16 bit signed integer, it should
-    // be stored to an "int16_t" type, which is always 16 bits
-    // even when compiled on a 32 bit processor.
-    int16_t raw = (data[1] << 8) | data[0];
-    if (type_s == 2) raw = (data[2] << 8) | data[1];
-    byte cfg = (data[4] & 0x60);
-
-    switch (type_s) {
-      case 1:
-        raw = raw << 3; // 9 bit resolution default
-        if (data[7] == 0x10) {
-          // "count remain" gives full 12 bit resolution
-          raw = (raw & 0xFFF0) + 12 - data[6];
-        }
-        celsius = (float)raw * 0.0625;
-        break;
-      case 0:
-        // at lower res, the low bits are undefined, so let's zero them
-        if (cfg == 0x00) raw = raw & ~7;  // 9 bit resolution, 93.75 ms
-        if (cfg == 0x20) raw = raw & ~3; // 10 bit res, 187.5 ms
-        if (cfg == 0x40) raw = raw & ~1; // 11 bit res, 375 ms
-        // default is 12 bit resolution, 750 ms conversion time
-        celsius = (float)raw * 0.0625;
-        break;
-
-      case 2:
-        data[1] = (data[1] >> 3) & 0x1f;
-        if (data[2] > 127) {
-          celsius = (float)data[2] - ((float)data[1] * .03125);
-        }else{
-          celsius = (float)data[2] + ((float)data[1] * .03125);
-        }
-    }
-
-    fahrenheit = celsius * 1.8 + 32.0;
-    Serial.print("  Temperature = ");
-    Serial.print(celsius);
-    Serial.print(" Celsius, ");
-    Serial.print(fahrenheit);
-    Serial.println(" Fahrenheit");
 
     ThingSpeak.setField(1, String(fahrenheit));
 
@@ -382,6 +386,8 @@ void doTelemetry() {
             //Spark.publish(PARTICLE_EVENT_NAME, payload, 60, PRIVATE);
             //Spark.publish("pool-temp", String(fahrenheit));
     #endif
+
+    fahrenheit = 0;
 
     lastMeasureTime = millis();
 }
