@@ -65,29 +65,27 @@ unsigned long measureInterval = 15000; // can send data to thingspeak every 15s,
 // connection settings
 float batterySOCmin = 95.0; // minimum battery state of charge needed for short wakeup time
 unsigned long wakeUpTimeoutShort = 10; // wake up every 5 mins when battery SOC > batterySOCmin
-unsigned long wakeUpTimeoutLong = 60; // wake up every 15 mins during long sleep, when battery is lower
+unsigned long wakeUpTimeoutLong = 600; // wake up every 10 mins during long sleep, when battery is lower
 
 // for updating software
 bool waitForUpdate = false; // for updating software
 unsigned long updateTimeout = 300000; // 5 min timeout for waiting for software update
-unsigned long communicationTimeout = 90000; // wait 5 mins before sleeping
+unsigned long communicationTimeout = 180000; // wait 5 mins before sleeping
 unsigned long bootupStartTime;
 
 //Timer setup
 Timer sleepy(communicationTimeout, go_to_sleep);
 Timer measurement(measureInterval, doTelemetry);
-Timer countup(1000, counter);
+//Timer countup(1000, counter);
+
+bool goToSleep = false;
 int count = 0;
 
 // for HTTP POST and Particle.publish payloads
 char payload[1024];
 
 // for publish and subscribe events
-//################### update these vars ###################
-String eventPrefix = "poolMon"; // e.g. myFarm/waterSystem
-//################### update these vars ###################
-
-bool pumpOn;
+String eventPrefix = "poolMon";
 
 void setup() {
     Serial.begin(9600);
@@ -98,7 +96,6 @@ void setup() {
     Particle.variable("pHVar", String(pH));
     Particle.variable("TempVar", fahrenheit);
     Particle.variable("BattVar", batterySOC);
-    Particle.variable("Counter", count);
 
     //set the LED on the pH sensor chip
     Serial1.print(ledconfig);
@@ -124,10 +121,10 @@ void setup() {
     ThingSpeak.begin(client);
 
     Particle.subscribe(eventPrefix, eventHandler);
-    Particle.publish(eventPrefix + "/pHSensor/startup", "true"); // subscribe to this with the API like: curl https://api.particle.io/v1/devices/events/temp?access_token=1234
+    Particle.publish(eventPrefix + "/pHSensor/startup", "v2.1.2"); // subscribe to this with the API like: curl https://api.particle.io/v1/devices/events/temp?access_token=1234
     sleepy.start();
     measurement.start();
-    countup.start();
+    //countup.start();
 
     doTelemetry(); // always take the measurements at least once
 }
@@ -144,14 +141,25 @@ void serialEvent1() {                                 //if the hardware serial p
 }
 
 void go_to_sleep(){
-  Serial.println("sleeping for long");
-  Particle.publish(eventPrefix + "/pHSensor/sleep", communicationTimeout);
-  sleepy.reset();
-  count = 0;
-  System.sleep(900);
+  goToSleep = true;
 }
 
 void loop() {
+
+  if (goToSleep){
+    Serial.println("sleeping");
+    Particle.publish(eventPrefix + "/pHSensor/sleep", "true");
+    count = 0;
+    goToSleep = false;
+    System.sleep(SLEEP_MODE_DEEP,300);
+  }
+
+  if (input_string_complete == true) {                //if a string from the PC has been received in its entirety
+    Serial1.print(inputstring);                       //send that string to the Atlas Scientific product
+    Serial1.print('\r');                              //add a <CR> to the end of the string
+    inputstring = "";                                 //clear the string
+    input_string_complete = false;                    //reset the flag used to tell if we have received a completed string from the PC
+  }
 
   if (sensor_string_complete == true) {               //if a string from the Atlas Scientific product has been received in its entirety
     Serial.println(phstring);                         //send that string to the PC's serial monitor
@@ -357,7 +365,10 @@ void doTelemetry() {
     Serial1.print('R');
     Serial1.print('\r');
     //delay(2000); //wait for reading of pH sensor
-    while (fahrenheit < 70 || fahrenheit > 95) {
+
+    int tempcount = 1;
+    while ((fahrenheit < 70 || fahrenheit > 95) && tempcount < 15) {
+        tempcount++;
         getTemp();
     }
 
