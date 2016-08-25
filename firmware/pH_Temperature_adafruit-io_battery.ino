@@ -27,15 +27,15 @@ bool batteryAlert;
 
 //configuration to log data to ThingSpeak
 #include "ThingSpeak.h"
-unsigned long myChannelNumber = 144215;  //e.g. 101992
-const char * myWriteAPIKey = "<write-key>"; // write key here, e.g. ZQV7CRQ8PLKO5QXF
+unsigned long myChannelNumber = <yourID>;  //e.g. 101992
+const char * myWriteAPIKey = "yourkey"; // write key here, e.g. ZQV7CRQ8PLKO5QXF
 
 TCPClient client;
 String inputstring = "";                              //a string to hold incoming data from the PC
 String phstring = "";                             //a string to hold the data from the Atlas Scientific product
 boolean input_string_complete = false;                //have we received all the data from the PC
 boolean sensor_string_complete = false;               //have we received all the data from the Atlas Scientific product
-float pH = 0;                                             //used to hold a floating point number that is the pH// last time since we sent sensor readings
+double pH = 0;                                             //used to hold a floating point number that is the pH// last time since we sent sensor readings
 int lastSend = 0;                                   //last time sensor reading sent
 double InTempC = 0;//original temperature in C from DS18B20
 double watertempf = 0;//converted temperature in F from DS18B20
@@ -47,15 +47,16 @@ String phReadCont = "C,0";
 
 // connection settings
 float batterySOCmin = 95.0; // minimum battery state of charge needed for short wakeup time
-unsigned long wakeUpTimeoutShort = 10; // wake up every 5 mins when battery SOC > batterySOCmin
+unsigned long wakeUpTimeoutShort = 60; // wake up every 5 mins when battery SOC > batterySOCmin
 unsigned long wakeUpTimeoutLong = 600; // wake up every 10 mins during long sleep, when battery is lower
 byte bssid[6];
 String bssidString = "";
 
-// for updating software
 bool waitForUpdate = false; // for updating software
-unsigned long updateTimeout = 300000; // 5 min timeout for waiting for software update
-unsigned long communicationTimeout = 120000; // wait 3 mins before sleeping
+unsigned long updateTimeout = 310000; // 5 min timeout for waiting for software update, slightly offset. See below.
+// wait 70 seconds before sleeping - this cannot be an increment of the measurement timer
+// or a hard fault will occur.
+unsigned long communicationTimeout = 70000;
 unsigned long bootupStartTime;
 
 //Timer setup
@@ -82,7 +83,7 @@ void setup() {
   inputstring.reserve(10);                            //set aside some bytes for receiving data from the PC
   phstring.reserve(30);                           //set aside some bytes for receiving data from Atlas Scientific product
 
-  Particle.variable("pHVar", String(pH));
+  Particle.variable("pHVar", pH);
   Particle.variable("TempVar", watertempf);
   Particle.variable("BattVar", batterySOC);
 
@@ -101,7 +102,7 @@ void setup() {
 
   ThingSpeak.begin(client);
   Particle.subscribe(eventPrefix, eventHandler);
-  Particle.publish(eventPrefix + "/pHSensor/startup", "v2.1.3"); // subscribe to this with the API like: curl https://api.particle.io/v1/devices/events/temp?access_token=1234
+  Particle.publish(eventPrefix + "/pHSensor/startup", "v2.1.4"); // subscribe to this with the API like: curl https://api.particle.io/v1/devices/events/temp?access_token=1234
   sleepy.start();
   measurement.start();
   countup.start();
@@ -133,10 +134,11 @@ void go_to_sleep(){
 void loop() {
   if (goToSleep){
     Serial.println("sleeping");
-    Particle.publish(eventPrefix + "/pHSensor/sleep", "true");
+    //Particle.publish(eventPrefix + "/pHSensor/sleep", "true");
     count = 0;
     goToSleep = false;
-    //System.sleep(60);
+    //for(uint32_t ms=millis(); millis() - ms < 5000; Particle.process());
+    System.sleep(SLEEP_MODE_DEEP,wakeUpTimeoutLong);
   }
   if (input_string_complete == true) {                //if a string from the PC has been received in its entirety
     Serial1.print(inputstring);                       //send that string to the Atlas Scientific product
@@ -149,7 +151,7 @@ void loop() {
     if (isdigit(phstring[0])) {                   //if the first character in the string is a digit
       ThingSpeak.setField(2, phstring);
       Particle.publish(eventPrefix + "/pHSensor/pH", phstring);
-      pH = phstring.toFloat();                    //convert the string to a floating point number so it can be evaluated by the Arduino
+      pH = phstring.toFloat();                    //convert the string to a floating point number so it can be evaluated
     }
     phstring = "";                                  //clear the string:
     sensor_string_complete = false;
