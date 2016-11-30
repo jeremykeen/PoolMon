@@ -1,7 +1,7 @@
 from sseclient import SSEClient 
 import requests, re, json
 
-access_token = "<token_here>"
+access_token = "ad84d0f05262309428b7fa8595c360a33609537b"
 publish_prefix_head = "poolMon" # for subscribing to incoming messages, e.g. myFarm
 publish_prefix = "poolMon/pHSensor" # e.g. myFarm/waterSystem
 messages = SSEClient('https://api.spark.io/v1/events/' + publish_prefix_head + '?access_token=' + access_token)

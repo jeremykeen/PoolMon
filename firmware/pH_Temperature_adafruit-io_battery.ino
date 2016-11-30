@@ -27,8 +27,8 @@ bool batteryAlert;
 
 //configuration to log data to ThingSpeak
 #include "ThingSpeak.h"
-unsigned long myChannelNumber = <yourID>;  //e.g. 101992
-const char * myWriteAPIKey = "yourkey"; // write key here, e.g. ZQV7CRQ8PLKO5QXF
+unsigned long myChannelNumber = 144215;  //e.g. 101992
+const char * myWriteAPIKey = "PVANB79KBVKVMY0K"; // write key here, e.g. ZQV7CRQ8PLKO5QXF
 
 TCPClient client;
 String inputstring = "";                              //a string to hold incoming data from the PC
@@ -48,15 +48,15 @@ String phReadCont = "C,0";
 // connection settings
 float batterySOCmin = 95.0; // minimum battery state of charge needed for short wakeup time
 unsigned long wakeUpTimeoutShort = 60; // wake up every 5 mins when battery SOC > batterySOCmin
-unsigned long wakeUpTimeoutLong = 600; // wake up every 10 mins during long sleep, when battery is lower
+unsigned long wakeUpTimeoutLong = 1800; // wake up every 10 mins during long sleep, when battery is lower
 byte bssid[6];
 String bssidString = "";
 
 bool waitForUpdate = false; // for updating software
 unsigned long updateTimeout = 310000; // 5 min timeout for waiting for software update, slightly offset. See below.
-// wait 70 seconds before sleeping - this cannot be an increment of the measurement timer
+// wait 3 minutes (plus some buffer) before sleeping - this cannot be an increment of the measurement timer
 // or a hard fault will occur.
-unsigned long communicationTimeout = 70000;
+unsigned long communicationTimeout = 190000;
 unsigned long bootupStartTime;
 
 //Timer setup
@@ -176,6 +176,7 @@ void eventHandler(String event, String data)
   }
   if (event == eventPrefix + "/pHSensor/cfg") {
     Serial.println("sending setting to pH sensor:" + data);
+    Particle.publish(eventPrefix + "/pHSensor/cfgConfirm", data);
     Serial1.print(data);
   }
   Serial.print(event);
