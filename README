@@ -1,5 +1,7 @@
-Work in Progress....
+## PoolMon Version 3
+Based on code from the Atlas Scientific Wifi Pool Kit
+https://github.com/Atlas-Scientific/Ezo_I2c_lib/blob/master/Examples/IOT_kits/pool_kit/pool_kit.ino
 
-firmwares are for Particle Photon to read the Atlas Scientific pH Sensor (http://www.atlas-scientific.com/ph.html)
+Added ability to update over-the-air
 
-python scripts are for reading from the Raspberry Pi and sending to Adafruit
+Added Blynk integration for data streaming and mobile app
